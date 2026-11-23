@@ -2,9 +2,6 @@
 
 # Differential Gene Expression Analysis
 
-## Overview
-This R script performs a comparative gene expression analysis between **Tumor** and **Normal** tissue samples. It integrates raw probe-level expression measurements, sample phenotype metadata, and genomic probe annotations to identify significantly differentially expressed genes (DEGs) with an absolute relative fold change greater than 5 (`|Fold Change| > 5`), summarizes their regulation direction, and generates five publication-ready visualizations.
-
 ---
 
 ## Input Files
