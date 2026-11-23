@@ -1,0 +1,272 @@
+
+R version 4.6.1 (2026-06-24) -- "Happy Hop"
+Copyright (C) 2026 The R Foundation for Statistical Computing
+Platform: aarch64-apple-darwin23
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[R.app GUI 1.83 (8608) aarch64-apple-darwin23]
+
+[Workspace restored from /Users/yoshi_zen25/.RData]
+[History restored from /Users/yoshi_zen25/.Rapp.history]
+
+> # Install and load all packages for data analysis
+> required_packages <- c("readxl", "dplyr", "ggplot2", "pheatmap", "RColorBrewer")
+> 
+> library(readxl)
+> library(dplyr)
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+> library(ggplot2)
+> library(pheatmap)
+> library(RColorBrewer)
+> 
+> # 1a. Load expression, gene annotation, and sample metadata from Downloads
+> df_expression <- as.data.frame(read_excel("~/Downloads/Gene_Expression_Data.xlsx"))
+                                                                                                           
+> rownames(df_expression) <- as.character(df_expression[[1]])
+> df_expression <- df_expression[, -1, drop = FALSE]
+> 
+> df_gene <- read.csv("~/Downloads/Gene_Information.csv", stringsAsFactors = FALSE)
+> df_sample <- read.delim("~/Downloads/Sample_Information.tsv", sep = "\t", stringsAsFactors = FALSE)
+> 
+> # Map each sample ID to its phenotype group
+> sample_ids <- if (!is.null(rownames(df_sample)) && !all(rownames(df_sample) == as.character(seq_len(nrow(df_sample))))) {
++   rownames(df_sample)
++ } else {
++   as.character(df_sample[[1]])
++ }
+> change_sample_name <- setNames(tolower(trimws(as.character(df_sample$group))), sample_ids)
+> 
+> # Rename expression columns with phenotype labels and sample numbers
+> new_columns <- character(ncol(df_expression))
+> counts <- list()
+> 
+> for (i in seq_along(colnames(df_expression))) {
++   col <- colnames(df_expression)[i]
++   pheno <- if (col %in% names(change_sample_name)) change_sample_name[[col]] else "unknown"
++   counts[[pheno]] <- if (is.null(counts[[pheno]])) 1 else counts[[pheno]] + 1
++   new_columns[i] <- paste0(pheno, "_", counts[[pheno]])
++ }
+> colnames(df_expression) <- new_columns
+> 
+> # Separate tumor and normal samples
+> tumor_column <- grep("^tumor", colnames(df_expression), value = TRUE)
+> normal_column <- grep("^normal", colnames(df_expression), value = TRUE)
+> 
+> df_tumor <- df_expression[, tumor_column, drop = FALSE]
+> df_normal <- df_expression[, normal_column, drop = FALSE]
+> 
+> # Calculate each probe's average expression in each group
+> mean_tumor <- rowMeans(df_tumor, na.rm = TRUE)
+> mean_normal <- rowMeans(df_normal, na.rm = TRUE)
+> 
+> # Calculate relative expression change between tumor and normal samples
+> fold_change <- (mean_tumor - mean_normal) / mean_normal
+> 
+> # Combine group means and fold change into one analysis table
+> df_analysis <- data.frame(
++   Probe_ID = rownames(df_expression),
++   Mean_Tumor = mean_tumor,
++   Mean_Normal = mean_normal,
++   Fold_Change = fold_change,
++   row.names = NULL,
++   stringsAsFactors = FALSE
++ )
+> 
+> # Add gene annotation information to the expression results
+> df_merged <- merge(df_analysis, df_gene, by = "Probe_ID")
+> 
+> # Keep probes with an absolute fold change greater than 5
+> df_filtered <- df_merged %>%
++   filter(abs(Fold_Change) > 5) %>%
++   mutate(
++     Higher_Expressed_In = ifelse(Mean_Tumor > Mean_Normal, "Tumor", "Normal")
++   )
+> 
+> # Retrieve expression values for the filtered differentially expressed probes
+> deg_probe <- df_filtered$Probe_ID
+> df_raw_filtered <- df_expression[deg_probe, , drop = FALSE]
+> 
+> # Print results
+> cat("  DEG Statistical Summary \n")
+  DEG Statistical Summary 
+> if (nrow(df_filtered) > 0) {
++   print(summary(df_filtered))
++   cat("\n--- Structural Regulation Balance ---\n")
++   print(table(df_filtered$Higher_Expressed_In))
++ }
+      Probe_ID    Mean_Tumor     Mean_Normal      Fold_Change           Symbol   Entrez_Gene_ID  
+ Length   :45   Min.   : 1355   Min.   : 192.1   Min.   : 5.088   Length   :45   Min.   :   768  
+ N.unique :45   1st Qu.: 2671   1st Qu.: 238.8   1st Qu.: 6.150   N.unique :41   1st Qu.:  4002  
+ N.blank  : 0   Median : 4424   Median : 348.1   Median : 7.917   N.blank  : 2   Median :  5968  
+ Min.nchar:12   Mean   : 6207   Mean   : 610.7   Mean   :12.759   Min.nchar: 0   Mean   : 51137  
+ Max.nchar:12   3rd Qu.: 7667   3rd Qu.: 535.8   3rd Qu.:11.952   Max.nchar: 9   3rd Qu.: 11047  
+                Max.   :47298   Max.   :7577.5   Max.   :43.570                  Max.   :643272  
+                                                                                 NAs    :2       
+     Chromosome      Cytoband  Higher_Expressed_In
+ Length   :45   Length   :45   Length   :45       
+ N.unique :21   N.unique :35   N.unique : 1       
+ N.blank  : 2   N.blank  : 3   N.blank  : 0       
+ Min.nchar: 0   Min.nchar: 0   Min.nchar: 5       
+ Max.nchar: 2   Max.nchar:14   Max.nchar: 5       
+                                                  
+                                                  
+
+--- Structural Regulation Balance ---
+
+Tumor 
+   45 
+> 
+> # Sort chromosome labels numerically where possible, then alphabetically
+> df_filtered$Chromosome <- trimws(as.character(df_filtered$Chromosome))
+> 
+> sort_chromosomes <- function(chroms) {
++   unique_c <- unique(chroms)
++   clean_c <- gsub("^chr", "", tolower(unique_c))
++   is_num <- grepl("^[0-9]+$", clean_c)
++   
++   num_part <- unique_c[is_num][order(as.numeric(clean_c[is_num]))]
++   char_part <- unique_c[!is_num][order(clean_c[!is_num])]
++   
++   c(num_part, char_part)
++ }
+> 
+> sorted_chrom <- sort_chromosomes(df_filtered$Chromosome)
+> df_filtered$Chromosome <- factor(df_filtered$Chromosome, levels = sorted_chrom)
+> 
+> # Plot 1: Distribution of DEGs by Chromosome
+> p1 <- ggplot(df_filtered, aes(x = Chromosome, fill = Chromosome)) +
++   geom_bar(show.legend = FALSE) +
++   scale_fill_manual(values = colorRampPalette(rev(brewer.pal(9, "Reds")))(length(sorted_chrom))) +
++   labs(
++     title = "Distribution of DEGs by Chromosome",
++     x = "Chromosome",
++     y = "# OF DEGs"
++   ) +
++   theme_minimal(base_size = 12) +
++   theme(
++     plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
++     axis.text.x = element_text(angle = 45, hjust = 1),
++     panel.grid.major.x = element_blank(),
++     panel.grid.major.y = element_line(linetype = "dashed", color = "grey80"),
++     plot.background = element_rect(fill = "white", color = NA)
++   )
+> ggsave("~/Downloads/Plot1_DEG_Chromosome.png", plot = p1, width = 10, height = 5, dpi = 300)
+> 
+> # Plot 2: Genomic Distribution of DEGs by Chromosome (Split by Group)
+> p2 <- ggplot(df_filtered, aes(x = Chromosome, fill = Higher_Expressed_In)) +
++   geom_bar(position = "dodge", color = "white", linewidth = 0.4, alpha = 0.9) +
++   scale_fill_manual(values = c("Tumor" = "red", "Normal" = "blue"), name = "Higher Expressed In") +
++   labs(
++     title = "Genomic Distribution of DEGs by Chromosome",
++     x = "Chromosome Location",
++     y = "# of Filtered DEGs"
++   ) +
++   theme_minimal(base_size = 12) +
++   theme(
++     plot.title = element_text(size = 15, face = "bold", hjust = 0.5),
++     axis.text.x = element_text(angle = 45, hjust = 1),
++     plot.background = element_rect(fill = "white", color = NA)
++   )
+> ggsave("~/Downloads/Plot2_DEG_Chromosome_Split.png", plot = p2, width = 10, height = 5.5, dpi = 300)
+> 
+> # Plot 3: Percentage of DEGs Regulated in Tumor Samples
+> reg_counts <- prop.table(table(df_filtered$Higher_Expressed_In)) * 100
+> df_pct <- data.frame(
++   Label = factor(
++     c("Upregulated\n(Tumor > Normal)", "Downregulated\n(Normal > Tumor)"),
++     levels = c("Upregulated\n(Tumor > Normal)", "Downregulated\n(Normal > Tumor)")
++   ),
++   Percentage = c(
++     ifelse("Tumor" %in% names(reg_counts), reg_counts[["Tumor"]], 0),
++     ifelse("Normal" %in% names(reg_counts), reg_counts[["Normal"]], 0)
++   )
++ )
+> 
+> p3 <- ggplot(df_pct, aes(x = Label, y = Percentage, fill = Label)) +
++   geom_bar(stat = "identity", color = "black", width = 0.5, show.legend = FALSE) +
++   geom_text(aes(label = sprintf("%.1f%%", Percentage)), vjust = -0.5, fontface = "bold") +
++   scale_fill_manual(values = c("red", "blue")) +
++   ylim(0, 110) +
++   labs(
++     title = "Percentage of DEGs Regulated in Tumor Samples",
++     x = NULL,
++     y = "Percentage of Total DEGs (%)"
++   ) +
++   theme_minimal(base_size = 11) +
++   theme(
++     plot.title = element_text(size = 13, face = "bold", hjust = 0.5),
++     plot.background = element_rect(fill = "white", color = NA)
++   )
+> ggsave("~/Downloads/Plot3_DEG_Percentage.png", plot = p3, width = 6, height = 5, dpi = 300)
+> 
+> # Standardize each probe's expression values to z-scores (row-wise)
+> df_zscore <- t(scale(t(as.matrix(df_raw_filtered))))
+> df_zscore[is.nan(df_zscore)] <- 0
+> rdbu_r <- colorRampPalette(rev(brewer.pal(11, "RdBu")))(100)
+> 
+> # Plot 4: Heatmap of DEG Expression Profiles (Unclustered)
+> pheatmap(
++   df_zscore,
++   color = rdbu_r,
++   cluster_rows = FALSE,
++   cluster_cols = FALSE,
++   show_colnames = TRUE,
++   show_rownames = nrow(df_zscore) <= 50,
++   main = "Heatmap of DEG Expression Profiles",
++   filename = "~/Downloads/Plot4_Heatmap.png",
++   width = 10,
++   height = 8
++ )
+> 
+> # Plot 5: Clustermap of Samples and Top DEGs (Clustered with Phenotype Bar)
+> annotation_col <- data.frame(
++   Phenotype = ifelse(grepl("tumor", colnames(df_zscore)), "Tumor", "Normal"),
++   row.names = colnames(df_zscore)
++ )
+> ann_colors <- list(
++   Phenotype = c(Tumor = "#d95f02", Normal = "#7570b3")
++ )
+> 
+> pheatmap(
++   df_zscore,
++   color = rdbu_r,
++   cluster_rows = TRUE,
++   cluster_cols = TRUE,
++   annotation_col = annotation_col,
++   annotation_colors = ann_colors,
++   show_colnames = TRUE,
++   show_rownames = nrow(df_zscore) <= 50,
++   main = "Clustermap of Samples and Top DEGs",
++   filename = "~/Downloads/Plot5_Clustermap.png",
++   width = 11,
++   height = 9
++ )
+> 
+> cat("All 5 PNG images saved to your Downloads folder!\n")
+All 5 PNG images saved to your Downloads folder!
+> 
+> 
+> 
